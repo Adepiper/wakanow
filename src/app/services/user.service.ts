@@ -1,42 +1,62 @@
-import { Injectable } from '@angular/core';
+import { Inject, Injectable, PLATFORM_ID } from '@angular/core';
 import { BehaviorSubject, Observable } from 'rxjs';
+import { UserDetails } from '../models/user';
 
 @Injectable({
   providedIn: 'root',
 })
 export class UserService {
-  private users: any[] = [];
+  private users = new BehaviorSubject<UserDetails[]>([]);
   private adminApproved: boolean = false;
   private adminApprovalSubject = new BehaviorSubject<boolean>(
     this.adminApproved
   );
-
-  constructor() {
-    // Load users from session storage on service initialization
-    const storedUsers = sessionStorage.getItem('users');
-    if (storedUsers) {
-      this.users = JSON.parse(storedUsers);
-    }
+  platformId: Object;
+  constructor(@Inject(PLATFORM_ID) platformId: Object) {
+    this.platformId = platformId;
   }
 
-  getUsers(): any[] {
-    return this.users;
+  user$ = this.users.asObservable();
+
+  getUsers() {
+    if (this.platformId) {
+      const storedUsers = sessionStorage.getItem('users');
+      if (storedUsers) {
+        this.users.next(JSON.parse(storedUsers) as UserDetails[]);
+      } else {
+        const admin: UserDetails = {
+          admin: true,
+          email: 'admin@gmail.com',
+          firstname: 'John',
+          lastname: 'Doe',
+          approved: true,
+          password: 'test123@gmail.com',
+          tempKey: 'Test',
+        };
+
+        this.users.next([admin]);
+        this.saveUsersToStorage();
+      }
+    }
   }
 
   saveUsersToStorage(): void {
     // Save users to session storage
-    sessionStorage.setItem('users', JSON.stringify(this.users));
+    sessionStorage.setItem('users', JSON.stringify(this.users.value));
   }
 
-  addUser(user: any): void {
-    this.users.push({ ...user, approved: false, tempKey: null });
+  addUser(user: UserDetails): void {
+    this.users.next([
+      ...this.users.value,
+      { ...user, approved: false, tempKey: null },
+    ]);
     this.saveUsersToStorage();
   }
 
   approveFirstUser(): void {
-    if (!this.adminApproved && this.users.length > 0) {
-      this.users[0].approved = true;
-      this.generateTempKey(this.users[0]);
+    if (!this.adminApproved && this.users.value.length > 0) {
+      this.users.value[0].approved = true;
+      this.generateTempKey(this.users.value[0]);
       this.adminApproved = true;
       this.adminApprovalSubject.next(this.adminApproved);
       this.saveUsersToStorage();
@@ -52,8 +72,11 @@ export class UserService {
     return this.adminApprovalSubject.asObservable();
   }
 
-  getApprovedUserByTempKey(userDetails: any): any {
-    return this.users.find(
+  getApprovedUserByTempKey(userDetails: {
+    email: string;
+    password: string;
+  }): any {
+    return this.users.value.find(
       (user) =>
         user.approved &&
         user.tempKey !== null &&
@@ -63,23 +86,23 @@ export class UserService {
   }
 
   updateUserData(updatedUser: any): void {
-    const index = this.users.findIndex(
+    const index = this.users.value.findIndex(
       (user) => user.approved && user.tempKey === updatedUser.tempKey
     );
     if (index !== -1) {
       // Users can update their own information
-      this.users[index] = { ...this.users[index], ...updatedUser };
+      this.users.value[index] = { ...this.users.value[index], ...updatedUser };
     }
     this.saveUsersToStorage();
   }
 
   removeUser(tempKey: string): void {
-    const index = this.users.findIndex(
+    const index = this.users.value.findIndex(
       (user) => user.approved && user.tempKey === tempKey
     );
     if (index !== -1) {
       // Users cannot remove themselves
-      this.users.splice(index, 1);
+      this.users.value.splice(index, 1);
     }
     this.saveUsersToStorage();
   }
